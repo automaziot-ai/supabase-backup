@@ -1,0 +1,60 @@
+{
+  "name": "Supabase Backup — Failure Alert",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "supabase-backup-failed",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "webhook-in",
+      "name": "Webhook (failure)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "supabase-backup-failed"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "1", "name": "client",  "type": "string", "value": "={{$json.body.client}}" },
+            { "id": "2", "name": "stage",   "type": "string", "value": "={{$json.body.stage}}" },
+            { "id": "3", "name": "error",   "type": "string", "value": "={{$json.body.error}}" },
+            { "id": "4", "name": "host",    "type": "string", "value": "={{$json.body.host}}" },
+            { "id": "5", "name": "ts",      "type": "string", "value": "={{$json.body.ts}}" },
+            { "id": "6", "name": "message", "type": "string", "value": "=🚨 *Supabase backup FAILED*\nClient: *{{$json.body.client}}*\nStage: `{{$json.body.stage}}`\nHost: `{{$json.body.host}}`\nTime: {{$json.body.ts}}\n\n```\n{{$json.body.error}}\n```" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "normalize",
+      "name": "Normalize",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [480, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{$env.ALERT_TARGET_URL}}",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"text\": {{JSON.stringify($json.message)}},\n  \"client\": {{JSON.stringify($json.client)}},\n  \"stage\": {{JSON.stringify($json.stage)}}\n}",
+        "options": {}
+      },
+      "id": "post-target",
+      "name": "Post to alert group",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [720, 300],
+      "notes": "Set ALERT_TARGET_URL env var in n8n to the Slack/Teams/Telegram webhook for the on-call group. Body shape above is Slack-compatible (incoming webhook). Replace if using a different chat platform."
+    }
+  ],
+  "connections": {
+    "Webhook (failure)": { "main": [[{ "node": "Normalize", "type": "main", "index": 0 }]] },
+    "Normalize":         { "main": [[{ "node": "Post to alert group", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" },
+  "pinData": {}
+}
