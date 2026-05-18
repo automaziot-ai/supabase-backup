@@ -1,0 +1,4 @@
+supabase/.temp/
+clients/
+*.env
+!templates/*.env.example
