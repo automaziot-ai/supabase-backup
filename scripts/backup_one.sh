@@ -80,14 +80,21 @@ functions_dump() {
   else
     pushd "$WORK/functions" >/dev/null
     IFS=',' read -ra arr <<< "$fns"
+    : > _failed_functions.txt
     for fn in "${arr[@]}"; do
       fn="$(echo "$fn" | xargs)"
       [[ -z "$fn" ]] && continue
-      supabase functions download "$fn" --project-ref "$SUPABASE_PROJECT_REF" || { popd >/dev/null; return 1; }
+      if ! err=$(supabase functions download "$fn" --project-ref "$SUPABASE_PROJECT_REF" 2>&1); then
+        echo "${fn}: ${err}" >> _failed_functions.txt
+      fi
     done
     # Capture secret NAMES (values are masked by Supabase) for the restore checklist
     supabase secrets list --project-ref "$SUPABASE_PROJECT_REF" > _secrets_names.txt 2>&1 || true
     popd >/dev/null
+    if [[ -s "$WORK/functions/_failed_functions.txt" ]]; then
+      "$SCRIPT_DIR/notify.sh" "$CLIENT_NAME" "functions-partial" \
+        "$(wc -l < "$WORK/functions/_failed_functions.txt" | tr -d ' ') function(s) failed to download; backup continues. See _failed_functions.txt in tar."
+    fi
   fi
   tar -C "$WORK" -czf "$WORK/functions.tar.gz" functions || return 1
   upload "$WORK/functions.tar.gz" "functions/${CLIENT_NAME}-${TODAY}.tar.gz"
