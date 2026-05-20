@@ -17,16 +17,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && ln -fs /usr/share/zoneinfo/$TZ /etc/localtime && dpkg-reconfigure -f noninteractive tzdata \
     && rm -rf /var/lib/apt/lists/*
 
-# Supabase CLI (static binary)
+# Supabase CLI — pinned. Newer releases ship as a shim (`supabase`) plus a
+# co-located `supabase-go` binary; extract the whole tar so the shim can find it.
+ARG SUPABASE_CLI_VERSION=2.100.1
 RUN ARCH=$(dpkg --print-architecture) \
     && case "$ARCH" in \
          amd64) SUPA_ARCH=amd64 ;; \
          arm64) SUPA_ARCH=arm64 ;; \
          *) echo "unsupported arch $ARCH" && exit 1 ;; \
        esac \
-    && curl -fsSL "https://github.com/supabase/cli/releases/latest/download/supabase_linux_${SUPA_ARCH}.tar.gz" \
-       | tar -xz -C /usr/local/bin supabase \
-    && chmod +x /usr/local/bin/supabase
+    && curl -fsSL "https://github.com/supabase/cli/releases/download/v${SUPABASE_CLI_VERSION}/supabase_${SUPABASE_CLI_VERSION}_linux_${SUPA_ARCH}.tar.gz" \
+       | tar -xz -C /usr/local/bin \
+    && chmod +x /usr/local/bin/supabase /usr/local/bin/supabase-go 2>/dev/null || true \
+    && supabase --version
 
 # supercronic
 RUN ARCH=$(dpkg --print-architecture) \
