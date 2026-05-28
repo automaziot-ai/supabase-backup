@@ -45,5 +45,7 @@ if [[ "${RUN_ONCE:-0}" == "1" ]]; then
   exec "$ROOT/scripts/backup.sh"
 fi
 
-echo "[entrypoint] starting supercronic; cron at 02:05 Asia/Jerusalem daily"
+CRON_SCHEDULE="${CRON_SCHEDULE:-5 2 * * *}"
+printf '%s /opt/backup-supabase/scripts/backup.sh\n' "$CRON_SCHEDULE" > /etc/crontab.backup
+echo "[entrypoint] starting supercronic; cron: '${CRON_SCHEDULE}' Asia/Jerusalem"
 exec /usr/local/bin/supercronic -passthrough-logs /etc/crontab.backup

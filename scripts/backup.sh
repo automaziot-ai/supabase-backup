@@ -24,6 +24,12 @@ TODAY="$(TZ=Asia/Jerusalem date +%F)"
 DOW="$(TZ=Asia/Jerusalem date +%u)"   # 1..7, 7 = Sunday
 WEEK="$(TZ=Asia/Jerusalem date +%G-W%V)"
 
+# Multi-run-per-day support: when BACKUP_INCLUDE_HOUR=1, append -HH to the date
+# so runs at 06/12/18 don't overwrite each other. Single-cron clients leave this unset.
+if [[ "${BACKUP_INCLUDE_HOUR:-0}" == "1" ]]; then
+  TODAY="${TODAY}-$(TZ=Asia/Jerusalem date +%H)"
+fi
+
 shopt -s nullglob
 clients=("$CLIENTS_DIR"/*.env)
 [[ ${#clients[@]} -gt 0 ]] || { echo "no clients in $CLIENTS_DIR"; exit 2; }
