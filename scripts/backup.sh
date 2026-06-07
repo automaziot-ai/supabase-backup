@@ -48,10 +48,12 @@ for client_env in "${clients[@]}"; do
   # one of the day's runs is promoted; single-run clients leave it unset.
   if [[ "$DOW" == "7" && ( -z "${WEEKLY_PROMOTE_HOUR:-}" || "$HOUR" == "${WEEKLY_PROMOTE_HOUR}" ) ]]; then
     # shellcheck disable=SC1090
-    ( set -a; . "$client_env"; set +a
+    ( set -a; . "$DEST_ENV"; . "$client_env"; set +a
+      s3_args=()
+      [[ -n "${DEST_S3_ENDPOINT:-}" ]] && s3_args+=(--endpoint-url "$DEST_S3_ENDPOINT")
       src="s3://${DEST_BUCKET}/${CLIENT_NAME}/daily/${TODAY}/"
       dst="s3://${DEST_BUCKET}/${CLIENT_NAME}/weekly/${WEEK}/"
-      if ! err=$(aws s3 cp ${AWS_S3_ARGS[@]+"${AWS_S3_ARGS[@]}"} --recursive "$src" "$dst" 2>&1); then
+      if ! err=$(aws s3 cp "${s3_args[@]}" --recursive "$src" "$dst" 2>&1); then
         "$SCRIPT_DIR/notify.sh" "$CLIENT_NAME" "weekly-promote" "copy failed: ${err}"
       fi
     )
