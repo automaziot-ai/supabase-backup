@@ -22,6 +22,7 @@ AWS_S3_ARGS=()
 
 TODAY="$(TZ=Asia/Jerusalem date +%F)"
 DOW="$(TZ=Asia/Jerusalem date +%u)"   # 1..7, 7 = Sunday
+HOUR="$(TZ=Asia/Jerusalem date +%H)"
 WEEK="$(TZ=Asia/Jerusalem date +%G-W%V)"
 
 # Multi-run-per-day support: when BACKUP_INCLUDE_HOUR=1, append -HH to the date
@@ -43,7 +44,9 @@ for client_env in "${clients[@]}"; do
   # Promote to weekly on Sunday. Tigris LIST is eventually consistent right after
   # backup_one.sh's PUTs, so we don't precheck — just attempt the cp. An empty source
   # is a no-op success; real failures (auth, network) trip the notify.
-  if [[ "$DOW" == "7" ]]; then
+  # Multi-run-per-day clients (BACKUP_INCLUDE_HOUR=1) pin WEEKLY_PROMOTE_HOUR so only
+  # one of the day's runs is promoted; single-run clients leave it unset.
+  if [[ "$DOW" == "7" && ( -z "${WEEKLY_PROMOTE_HOUR:-}" || "$HOUR" == "${WEEKLY_PROMOTE_HOUR}" ) ]]; then
     # shellcheck disable=SC1090
     ( set -a; . "$client_env"; set +a
       src="s3://${DEST_BUCKET}/${CLIENT_NAME}/daily/${TODAY}/"
