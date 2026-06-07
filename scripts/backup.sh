@@ -40,15 +40,15 @@ for client_env in "${clients[@]}"; do
     overall_rc=1
   fi
 
-  # Promote to weekly on Sunday
+  # Promote to weekly on Sunday. Tigris LIST is eventually consistent right after
+  # backup_one.sh's PUTs, so we don't precheck — just attempt the cp. An empty source
+  # is a no-op success; real failures (auth, network) trip the notify.
   if [[ "$DOW" == "7" ]]; then
     # shellcheck disable=SC1090
     ( set -a; . "$client_env"; set +a
       src="s3://${DEST_BUCKET}/${CLIENT_NAME}/daily/${TODAY}/"
       dst="s3://${DEST_BUCKET}/${CLIENT_NAME}/weekly/${WEEK}/"
-      if ! aws s3 ls "$src" >/dev/null 2>&1; then
-        "$SCRIPT_DIR/notify.sh" "$CLIENT_NAME" "weekly-promote" "no daily/${TODAY} to promote"
-      elif ! err=$(aws s3 cp ${AWS_S3_ARGS[@]+"${AWS_S3_ARGS[@]}"} --recursive "$src" "$dst" 2>&1); then
+      if ! err=$(aws s3 cp ${AWS_S3_ARGS[@]+"${AWS_S3_ARGS[@]}"} --recursive "$src" "$dst" 2>&1); then
         "$SCRIPT_DIR/notify.sh" "$CLIENT_NAME" "weekly-promote" "copy failed: ${err}"
       fi
     )
