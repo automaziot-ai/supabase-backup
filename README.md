@@ -16,6 +16,43 @@ s3://<DEST_BUCKET>/<client>/
 ```
 Files end in `.gpg` if `GPG_RECIPIENT` is set for the client.
 
+## Cutting Supabase egress (opt-in)
+Every nightly run reads the whole project from Supabase: two `pg_dump` passes (custom +
+plain) and every Storage object. On a free-plan project (5 GB egress/month) that alone
+can exhaust the quota. All knobs below are **per client and off by default** — a client
+that sets none of them gets exactly the historical backup.
+
+| Variable | Effect | Egress saved |
+|---|---|---|
+| `PG_DUMP_SINGLE_PASS=1` | `db.sql.gz` is rendered locally from `db.dump` with `pg_restore` instead of a second `pg_dump`. Same SQL; only cosmetic quoting of a couple of `SET`/`CREATE SCHEMA` lines differs. | ~50% of DB egress |
+| `PG_DUMP_EXCLUDE_TABLE_DATA=<p1>,<p2>` | Each pattern becomes one `--exclude-table-data=<p>` argument (no shell quoting involved; `*` wildcards; `schema.*` = whole schema; quote mixed-case names `public."MyTable"`). Table definitions, indexes and policies are still dumped — only rows are skipped. | rows of those tables |
+| `FULL_DUMP_WEEKDAY=1..7` | On that ISO weekday (Asia/Jerusalem; 7 = Sunday = the run promoted to `weekly/`) the exclusions are ignored. | — |
+| `STORAGE_MODE=incremental` | Storage is copied remote→remote (`rclone copy --size-only`) into a persistent mirror at the destination. Unchanged objects are skipped using listing data only (no per-object HEAD/GET against Supabase). The daily folder gets an object listing instead of a tarball. | all unchanged objects |
+| `STORAGE_HISTORY_RETENTION_DAYS` | Days to keep superseded object versions (default `WEEKLY_RETENTION_DAYS`). | — |
+| `DEST_PREFLIGHT=1` | Writes `<client>/_preflight.txt` first; if the destination rejects it (e.g. rotated bucket keys → `SignatureDoesNotMatch`) the client is skipped before any Supabase read. | the whole run, when the destination is broken |
+
+Manifests of clients that use any of these get an extra `options` object (`storage_mode`,
+`db_dump: full|partial`, `db_excluded_table_data`, `pg_dump_single_pass`).
+
+Incremental storage layout:
+```
+<client>/storage-mirror/current/<bucket>/<key>          latest copy of every object ever seen (never deleted)
+<client>/storage-mirror/history/<date>/<bucket>/<key>   version replaced on <date> (pruned after STORAGE_HISTORY_RETENTION_DAYS)
+<client>/daily/<date>/storage/<client>-<date>.objects.json   which objects (path + size) existed that night
+```
+Why `--size-only`: rclone's default modtime comparison issues a HEAD per object on both
+sides (S3 modtime lives in metadata), and `--checksum` trusts that both providers' ETags
+are MD5s. Size needs only the listings. Trade-off: an object overwritten in place with
+content of the exact same byte size is not re-copied — acceptable for upload-once
+assets; don't use incremental mode for buckets that rewrite same-size files in place.
+If the destination needs virtual-hosted-style URLs, set
+`RCLONE_CONFIG_BKDEST_FORCE_PATH_STYLE=false` on the service.
+
+Caveats: excluded tables restore empty — if other tables have foreign keys *into* them,
+`pg_restore` will report those constraints as failed until the data is re-created. The
+first incremental run downloads everything once to seed the mirror. `STORAGE_MODE=incremental`
+is ignored (full mode used) when `GPG_RECIPIENT` is set, since the mirror is not encrypted.
+
 ## Schedule
 `02:05 Asia/Jerusalem` daily (supercronic inside the container honors `$TZ` for DST). Sunday's run is also copied (server-side `aws s3 cp --recursive`) to `weekly/`. Both retention windows are enforced by `prune.sh` after every run (Railway/Tigris buckets have no native lifecycle rules).
 
@@ -140,6 +177,8 @@ Env vars are untouched — only the image changes.
 | `pg_restore: errors ignored on restore: 634` (or similar) | Supabase-internal event triggers owned by `supabase_admin` | Ignore. Verify success by row counts (`auth.users`, public tables, RLS policies). |
 | Upload URL becomes `*.s3.auto.amazonaws.com` | `--endpoint-url` flag lost in subprocess (bash arrays don't export) | Each script that calls `aws` sources `destination.env` and rebuilds the flag (done) |
 | `InvalidAccessKeyId` after redeploy / "creds in container don't match Railway env" | `destination.env` is written ONCE at container start; later env-var changes don't reach disk | After `railway variables --set ...`, also `railway redeploy --yes` to refresh in-container files |
+| Run exits 1, log shows `SignatureDoesNotMatch` on every upload | Destination bucket keys rotated/invalid — the run still downloads everything from Supabase, then fails every upload | Refresh `DEST_S3_*` (see ONBOARDING § Rotating bucket creds) and redeploy; set `DEST_PREFLIGHT=1` so a broken destination costs no Supabase egress |
+| `[notify] WARNING: alert NOT delivered — webhook answered HTTP 404` | n8n workflow behind `WEBHOOK_URL` is inactive/deleted. Alerts are lost but the backup result is unaffected (notify always exits 0) | Re-activate/redeploy the n8n workflow or fix `WEBHOOK_URL` |
 | Telegram spam loop | Container exits non-zero, Railway restart policy kicks in | While debugging set `WEBHOOK_URL=muted-during-debug` (curl 404s silently, no alert) |
 
 ## What is NOT backed up (must record manually)

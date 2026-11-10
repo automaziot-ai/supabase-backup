@@ -12,6 +12,10 @@ DAILY_KEEP="${DAILY_RETENTION_DAYS:-10}"
 WEEKLY_KEEP="${WEEKLY_RETENTION_DAYS:-28}"
 
 cutoff_daily="$(date -u -d "${DAILY_KEEP} days ago" +%F 2>/dev/null || date -u -v-${DAILY_KEEP}d +%F)"
+# STORAGE_MODE=incremental only: superseded object versions are kept as long as the
+# oldest snapshot listing that may reference them (weekly retention by default).
+HISTORY_KEEP="${STORAGE_HISTORY_RETENTION_DAYS:-$WEEKLY_KEEP}"
+cutoff_history="$(date -u -d "${HISTORY_KEEP} days ago" +%F 2>/dev/null || date -u -v-"${HISTORY_KEEP}"d +%F)"
 cutoff_weekly_epoch="$(date -u -d "${WEEKLY_KEEP} days ago" +%s 2>/dev/null || date -u -v-${WEEKLY_KEEP}d +%s)"
 
 prune_prefix() {
@@ -26,6 +30,7 @@ prune_prefix() {
 }
 
 is_old_daily()  { [[ "$1" < "$cutoff_daily" ]]; }
+is_old_history() { [[ "$1" < "$cutoff_history" ]]; }
 is_old_weekly() {
   # entry like 2026-W19 → take Monday of that ISO week
   local d
@@ -35,3 +40,6 @@ is_old_weekly() {
 
 prune_prefix daily  is_old_daily
 prune_prefix weekly is_old_weekly
+if [[ "${STORAGE_MODE:-full}" == "incremental" ]]; then
+  prune_prefix storage-mirror/history is_old_history
+fi

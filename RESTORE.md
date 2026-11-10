@@ -53,6 +53,33 @@ Spot-check: `psql "$NEW_DB_URL" -c "select count(*) from auth.users;"`
    ```
 Bucket definitions (public/private, size limits) were restored by pg_restore via the `storage` schema. Verify in dashboard.
 
+### 3b. Storage backed up with `STORAGE_MODE=incremental`
+There is no tarball: the daily folder holds `storage/<client>-<date>.objects.json` (the
+object list that night) and the objects live in `<client>/storage-mirror/`.
+`scripts/storage_restore.sh` rebuilds exactly that night's set — from `current/` where the
+size matches, otherwise from the earliest `history/<d>/` after the snapshot (the version
+that was overwritten later). Objects deleted before the snapshot are not restored.
+```
+export CLIENT_NAME=<client> DEST_BUCKET=... DEST_S3_ENDPOINT=... DEST_S3_REGION=... \
+       DEST_S3_ACCESS_KEY_ID=... DEST_S3_SECRET_ACCESS_KEY=...
+# target = the new Supabase project's S3 endpoint, defined as rclone remote "newsupa"
+export RCLONE_CONFIG_NEWSUPA_TYPE=s3 RCLONE_CONFIG_NEWSUPA_PROVIDER=Other \
+       RCLONE_CONFIG_NEWSUPA_ENDPOINT="https://<NEW_REF>.supabase.co/storage/v1/s3" \
+       RCLONE_CONFIG_NEWSUPA_REGION=<region> \
+       RCLONE_CONFIG_NEWSUPA_ACCESS_KEY_ID="$NEW_SRC_KEY" RCLONE_CONFIG_NEWSUPA_SECRET_ACCESS_KEY="$NEW_SRC_SECRET"
+scripts/storage_restore.sh storage/<client>-<date>.objects.json <date> newsupa:
+# or materialize locally first:  scripts/storage_restore.sh ... <date> ./storage
+```
+Exit code 2 lists any object it could not resolve (history already pruned, or a same-size
+overwrite). Snapshots older than `STORAGE_HISTORY_RETENTION_DAYS` may be incomplete for
+objects overwritten since then; the latest snapshot is always complete.
+
+### Partial DB dumps
+If `manifest.json` has `"options": {"db_dump": "partial"}`, the rows of the tables in
+`db_excluded_table_data` are not in the dump (their definitions are). Restore as above,
+then re-create that data (re-scrape / re-import), or restore from a `weekly/` folder or a
+`FULL_DUMP_WEEKDAY` daily whose manifest says `"db_dump": "full"`.
+
 ## 4. Restore edge functions
 ```
 tar -xzf functions/<client>-<date>.tar.gz
