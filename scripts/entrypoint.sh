@@ -35,6 +35,14 @@ SRC_S3_SECRET_ACCESS_KEY=${SRC_S3_SECRET_ACCESS_KEY:-}
 EDGE_FUNCTIONS=${EDGE_FUNCTIONS:-AUTO}
 GPG_RECIPIENT=${GPG_RECIPIENT:-}
 EOF
+  # Opt-in egress reducers (see backup_one.sh). Written only when set, shell-quoted
+  # because pg_dump patterns contain '*'.
+  for opt in STORAGE_MODE STORAGE_HISTORY_RETENTION_DAYS PG_DUMP_EXCLUDE_TABLE_DATA \
+             FULL_DUMP_WEEKDAY PG_DUMP_SINGLE_PASS DEST_PREFLIGHT; do
+    if [[ -n "${!opt:-}" ]]; then
+      printf '%s=%q\n' "$opt" "${!opt}" >> "$ROOT/clients/${CLIENT_NAME}.env"
+    fi
+  done
   chmod 600 "$ROOT/clients/${CLIENT_NAME}.env"
   echo "[entrypoint] wrote clients/${CLIENT_NAME}.env"
 fi
